@@ -2,20 +2,16 @@ const c = @import("../helpers/const.zig");
 const std = @import("std");
 const assert = std.debug.assert;
 
-const VecError = error{
+pub const VecError = error{
     ZeroLength,
 };
 
-const Vec3 = struct {
+pub const Vec3 = struct {
     x: f64,
     y: f64,
     z: f64,
 
-    pub fn new(x: f64, y: f64, z: f64) Vec3 {
-        return Vec3.init(x, y, z);
-    }
-
-    fn init(x: f64, y: f64, z: f64) Vec3 {
+    pub fn init(x: f64, y: f64, z: f64) Vec3 {
         return Vec3{
             .x = x,
             .y = y,
@@ -32,7 +28,7 @@ const Vec3 = struct {
     }
 
     pub fn cross(a: Vec3, b: Vec3) Vec3 {
-        return Vec3.new(
+        return Vec3.init(
             a.y * b.z - a.z * b.y,
             a.z * b.x - a.x * b.z,
             a.x * b.y - a.y * b.x,
@@ -43,19 +39,29 @@ const Vec3 = struct {
         return a.x * b.x + a.y * b.y + a.z * b.z;
     }
 
-    pub fn scale(a: Vec3, s: f64) Vec3 {
-        return Vec3.init(a.x * s, a.y * s, a.z * s);
+    pub fn add(self: Vec3, other: Vec3) Vec3 {
+        return Vec3.init(self.x + other.x, self.y + other.y, self.z + other.z);
+    }
+
+    pub fn sub(self: Vec3, other: Vec3) Vec3 {
+        return Vec3.init(self.x - other.x, self.y - other.y, self.z - other.z);
+    }
+
+    pub fn scale(self: Vec3, s: f64) Vec3 {
+        return Vec3.init(self.x * s, self.y * s, self.z * s);
     }
 };
 
-const UnitVec3 = struct {
+pub const UnitVec3 = struct {
     x: f64,
     y: f64,
     z: f64,
 
-    fn init(x: f64, y: f64, z: f64) VecError!UnitVec3 {
-        const len: f64 = std.math.sqrt(x * x + y * y + z * z);
-        if (len < c.epsilon) return VecError.ZeroLength;
+    pub fn init(x: f64, y: f64, z: f64) UnitVec3 {
+        const len_sq = x * x + y * y + z * z;
+        std.debug.assert(len_sq > c.epsilon * c.epsilon);
+        const len = std.math.sqrt(len_sq);
+
         return UnitVec3{
             .x = x / len,
             .y = y / len,
@@ -63,8 +69,8 @@ const UnitVec3 = struct {
         };
     }
 
-    pub fn new(x: f64, y: f64, z: f64) VecError!UnitVec3 {
-        return UnitVec3.init(x, y, z);
+    pub fn asVec3(self: UnitVec3) Vec3 {
+        return Vec3.init(self.x, self.y, self.z);
     }
 
     pub fn dot(a: UnitVec3, b: UnitVec3) f64 {
@@ -72,11 +78,27 @@ const UnitVec3 = struct {
     }
 
     pub fn cross(a: UnitVec3, b: UnitVec3) Vec3 {
-        return Vec3.cross(Vec3.new(a.x, a.y, a.z), Vec3.new(b.x, b.y, b.z));
+        return Vec3.init(
+            a.y * b.z - a.z * b.y,
+            a.z * b.x - a.x * b.z,
+            a.x * b.y - a.y * b.x,
+        );
     }
 
-    pub fn normalize(a: Vec3) VecError!UnitVec3 {
-        if (a.len_sq() < c.epsilon * c.epsilon) return VecError.ZeroLength;
+    pub fn normalize(a: Vec3) UnitVec3 {
+        std.debug.assert(a.len_sq() > c.epsilon * c.epsilon);
         return UnitVec3.init(a.x, a.y, a.z);
+    }
+
+    pub fn scale(self: UnitVec3, s: f64) Vec3 {
+        return Vec3.init(self.x * s, self.y * s, self.z * s);
+    }
+
+    pub fn sub(self: UnitVec3, other: UnitVec3) Vec3 {
+        return Vec3.init(self.x - other.x, self.y - other.y, self.z - other.z);
+    }
+
+    pub fn flip(self: UnitVec3) UnitVec3 {
+        return UnitVec3.init(-self.x, -self.y, -self.z);
     }
 };
