@@ -1,5 +1,10 @@
 const path_tracing_zig = @import("path_tracing_zig");
 const std = @import("std");
+
+pub const tracy_impl = @import("tracy_impl");
+pub const tracy = @import("tracy");
+const Zone = tracy.Zone;
+
 const print = std.debug.print;
 const func = @import("helpers/func.zig");
 
@@ -20,6 +25,19 @@ const ColorRGBf = screen.ColorRGBf;
 const vec = @import("math/vec.zig");
 const Vec3 = vec.Vec3;
 const UnitVec3 = vec.UnitVec3;
+
+pub const tracy_options: tracy.Options = .{
+    .on_demand = false,
+    .no_broadcast = false,
+    .only_localhost = false,
+    .only_ipv4 = false,
+    .delayed_init = false,
+    .manual_lifetime = false,
+    .verbose = false,
+    .data_port = null,
+    .broadcast_port = null,
+    .default_callstack_depth = 0,
+};
 
 const win = @cImport({
     @cInclude("windows.h");
@@ -130,11 +148,19 @@ const scene = .{
         },
     },
     Plane{
+        .point = Vec3.init(0.0, 0.0, 10.0),
+        .normal = UnitVec3.init(0.0, 1.0, -1.0),
+        .material = Material{
+            .color = ColorRGBf{ .r = 0.0, .g = 1.0, .b = 1.0 },
+            .reflectivity = 0.1,
+        },
+    },
+    Plane{
         .point = Vec3.init(0.0, -2.0, 0.0),
         .normal = UnitVec3.init(0.0, 1.0, 0.0),
         .material = Material{
             .color = ColorRGBf{ .r = 0.0, .g = 0.0, .b = 0.0 },
-            .reflectivity = 0.03,
+            .reflectivity = 0.06,
         },
     },
     Plane{
@@ -159,6 +185,14 @@ const scene = .{
         .material = Material{
             .color = ColorRGBf{ .r = 1.0, .g = 1.0, .b = 1.0 },
             .reflectivity = 0.4,
+        },
+    },
+    Sphere{
+        .center = Vec3.init(0.0, 3.0, 8.0),
+        .radius = 7.0,
+        .material = Material{
+            .color = ColorRGBf{ .r = 0.0, .g = 1.0, .b = 0.0 },
+            .reflectivity = 0.8,
         },
     },
 };
@@ -209,8 +243,8 @@ pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
-    const initial_width: i32 = 1920;
-    const initial_height: i32 = 1080;
+    const initial_width: i32 = 3840;
+    const initial_height: i32 = 2160;
     const initial_framebuffer: []u32 = try allocator.alloc(u32, initial_width * initial_height);
 
     var app_state = AppState{
@@ -283,7 +317,7 @@ pub fn main() !void {
         \\Enter Your Choice:
     ;
 
-    const camera = Camera.init(Vec3{ .x = 0.0, .y = 0.0, .z = 0.0 }, Vec3{ .x = 0.0, .y = 0.0, .z = -1.0 }, UnitVec3.normalize(Vec3{ .x = 0.0, .y = 1.0, .z = 0.0 }), 90.0, app_state.width, app_state.height, 1.0);
+    const camera = Camera.init(Vec3{ .x = 0.0, .y = 0.0, .z = 0.0 }, Vec3{ .x = 0.0, .y = 0.0, .z = -1.0 }, UnitVec3.normalize(Vec3{ .x = 0.0, .y = 1.0, .z = 0.0 }), 45.0, app_state.width, app_state.height, 1.0);
 
     print("w: {}\n", .{camera.w});
     print("u: {}\n", .{camera.u});
@@ -317,7 +351,11 @@ pub fn main() !void {
                 try func.shadows(scene, camera, &app_state);
             },
             '5' => {
+                var timer = try std.time.Timer.start();
                 try func.depth_tracing(scene, camera, &app_state);
+                const elapsed_ns = timer.read();
+                // tracy.frameMark();
+                std.debug.print("Render time: {d} ms\n", .{elapsed_ns / 1_000_000});
             },
             else => {
                 try stdout.writeAll("bitchin'\n");

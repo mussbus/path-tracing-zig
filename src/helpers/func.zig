@@ -11,6 +11,8 @@ const AppState = a_state.AppState;
 const vec = @import("../math/vec.zig");
 const UnitVec3 = vec.UnitVec3;
 const Vec3 = vec.Vec3;
+const tracy = @import("tracy");
+const Zone = tracy.Zone;
 
 const consts = @import("../helpers/const.zig");
 
@@ -259,6 +261,12 @@ pub fn depth_tracing(
     camera: Camera,
     app_state: *const AppState,
 ) !void {
+    const frame_zone = Zone.begin(.{
+        .name = "frame::depth_tracing",
+        .src = @src(),
+        .color = .tomato,
+    });
+    defer frame_zone.end();
     const width = app_state.*.width;
     const height = app_state.*.height;
     std.debug.assert(height > 0 and width > 0);
@@ -267,11 +275,23 @@ pub fn depth_tracing(
 
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
-    const allocator = arena.allocator();
+
+    // Wrap the arena allocator with Tracy
+    var tracy_allocator: tracy.Allocator = .{
+        .parent = arena.allocator(),
+    };
+
+    const allocator = tracy_allocator.allocator();
     var pixels = try allocator.alloc([3]u8, width_usize * height_usize);
-    const depth: u8 = 5;
+    const depth: u8 = 25;
 
     for (0..height_usize) |y| {
+        const row_zone = Zone.begin(.{
+            .name = "row_loop",
+            .src = @src(),
+            .color = .orange,
+        });
+        defer row_zone.end();
         for (0..width_usize) |x| {
             const ray: Ray = camera.get_ray(x, y);
             const color = ray_trace(scene, depth, ray);
@@ -291,23 +311,43 @@ pub fn depth_tracing(
 }
 
 fn ray_trace(scene: anytype, depth: u8, ray: Ray) screen.ColorRGBf {
+    const ray_zone = Zone.begin(.{
+        .name = "ray_trace",
+        .src = @src(),
+        .color = .red,
+    });
+    defer ray_zone.end();
     if (depth <= 0) return screen.BLACK;
 
     var closest_hit: ?Hit = null;
     const t_min: f64 = consts.epsilon;
     var t_max: f64 = std.math.floatMax(f64);
 
-    inline for (scene) |object| {
-        const hit: ?Hit = object.intersect(ray, t_min, t_max);
-        if (hit) |h| {
-            if (closest_hit == null or h.t < t_max) {
-                t_max = h.t;
-                closest_hit = h;
+    {
+        const intersect_zone = Zone.begin(.{
+            .name = "scene_intersection",
+            .src = @src(),
+            .color = .yellow,
+        });
+        defer intersect_zone.end();
+        inline for (scene) |object| {
+            const hit: ?Hit = object.intersect(ray, t_min, t_max);
+            if (hit) |h| {
+                if (closest_hit == null or h.t < t_max) {
+                    t_max = h.t;
+                    closest_hit = h;
+                }
             }
         }
     }
 
     if (closest_hit) |h| {
+        const shade_zone = Zone.begin(.{
+            .name = "shading",
+            .src = @src(),
+            .color = .green,
+        });
+        defer shade_zone.end();
         const reflected_vector: Vec3 = ray.direction.asVec3().sub(h.normal.asVec3().scale(Vec3.dot(ray.direction.asVec3(), h.normal.asVec3()) * 2.0));
         const reflected_dir: UnitVec3 = UnitVec3.normalize(reflected_vector);
         const reflected_ray = Ray.init(h.point, reflected_dir);
@@ -318,6 +358,12 @@ fn ray_trace(scene: anytype, depth: u8, ray: Ray) screen.ColorRGBf {
 
         var shadow: f64 = undefined;
         if (light_factor > 0) {
+            const shadow_zone = Zone.begin(.{
+                .name = "shadow_ray",
+                .src = @src(),
+                .color = .blue,
+            });
+            defer shadow_zone.end();
             const shadow_ray: Ray = Ray.init(h.point, direction_to_light);
             var closest_shadow_hit: ?Hit = null;
             inline for (scene) |object| {
@@ -338,7 +384,13 @@ fn ray_trace(scene: anytype, depth: u8, ray: Ray) screen.ColorRGBf {
             .g = h.material.color.g * local_lighting,
             .b = h.material.color.b * local_lighting,
         };
+        const recurse_zone = Zone.begin(.{
+            .name = "reflection_recursion",
+            .src = @src(),
+            .color = .purple,
+        });
         const ray_color = ray_trace(scene, depth - 1, reflected_ray);
+        recurse_zone.end();
         return screen.colorReflected(color, ray_color, h.material.reflectivity);
     } else {
         return screen.BLACK;

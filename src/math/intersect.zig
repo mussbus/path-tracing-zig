@@ -11,6 +11,9 @@ const Ray = ray_file.Ray;
 const screen = @import("../screen/screen.zig");
 const Material = screen.Material;
 
+const tracy = @import("tracy");
+const Zone = tracy.Zone;
+
 pub const Hit = struct {
     t: f64,
     point: Vec3,
@@ -39,6 +42,12 @@ pub const Plane = struct {
     material: Material,
 
     pub fn intersect(self: Plane, ray: Ray, t_min: f64, t_max: f64) ?Hit {
+        const zone = Zone.begin(.{
+            .name = "Plane::intersect",
+            .src = @src(),
+            .color = .cyan,
+        });
+        defer zone.end();
         const o: Vec3 = ray.origin;
         const d = ray.direction;
         const p = self.point;
@@ -68,6 +77,12 @@ pub const Sphere = struct {
     material: Material,
 
     pub fn intersect(self: Sphere, ray: Ray, t_min: f64, t_max: f64) ?Hit {
+    const zone = Zone.begin(.{
+            .name = "Sphere::intersect",
+            .src = @src(),
+            .color = .magenta,
+        });
+        defer zone.end();
         const o = ray.origin;
         const center = self.center;
         const d = ray.direction;

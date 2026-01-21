@@ -20,6 +20,7 @@ pub fn build(b: *std.Build) void {
     // of this build script using `b.option()`. All defined flags (including
     // target and optimize options) will be listed when running `zig build --help`
     // in this directory.
+    //
 
     // This creates a module, which represents a collection of source files alongside
     // some compilation options, such as optimization mode and linked system libraries.
@@ -82,6 +83,32 @@ pub fn build(b: *std.Build) void {
             },
         }),
     });
+
+    // add tracy
+    const tracy_enabled = b.option(
+        bool,
+        "tracy",
+        "Build with Tracy support.",
+    ) orelse false;
+
+    const tracy = b.dependency("tracy", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    exe.root_module.addImport("tracy", tracy.module("tracy"));
+
+    if (tracy_enabled) {
+        exe.root_module.addImport(
+            "tracy_impl",
+            tracy.module("tracy_impl_enabled"),
+        );
+    } else {
+        exe.root_module.addImport(
+            "tracy_impl",
+            tracy.module("tracy_impl_disabled"),
+        );
+    }
 
     exe.linkLibC();
     exe.linkSystemLibrary("gdi32");
