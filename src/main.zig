@@ -195,6 +195,22 @@ const scene = .{
             .reflectivity = 0.8,
         },
     },
+    Sphere{
+        .center = Vec3.init(-4.0, 1.0, -9.0),
+        .radius = 3.0,
+        .material = Material{
+            .color = ColorRGBf{ .r = 1.0, .g = 0.0, .b = 0.0 },
+            .reflectivity = 0.15,
+        },
+    },
+    Sphere{
+        .center = Vec3.init(6.0, 3.0, -20.0),
+        .radius = 10.0,
+        .material = Material{
+            .color = ColorRGBf{ .r = 1.0, .g = 0.0, .b = 0.0 },
+            .reflectivity = 0.5,
+        },
+    },
 };
 
 fn renderFrame(app_state: *AppState) void {
@@ -236,6 +252,7 @@ fn parseCommand(line: []const u8) u8 {
     if (std.mem.eql(u8, line, "3")) return '3';
     if (std.mem.eql(u8, line, "4")) return '4';
     if (std.mem.eql(u8, line, "5")) return '5';
+    if (std.mem.eql(u8, line, "6")) return '6';
     return 'Z';
 }
 
@@ -243,8 +260,10 @@ pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
-    const initial_width: i32 = 3840;
-    const initial_height: i32 = 2160;
+    // const initial_width: i32 = 3840;
+    // const initial_height: i32 = 2160;
+    const initial_width: i32 = 7680;
+    const initial_height: i32 = 4320;
     const initial_framebuffer: []u32 = try allocator.alloc(u32, initial_width * initial_height);
 
     var app_state = AppState{
@@ -314,10 +333,11 @@ pub fn main() !void {
         \\3. Lambertian Shading
         \\4. Shadow
         \\5. Ray Tracer
+        \\6. Multithreaded
         \\Enter Your Choice:
     ;
 
-    const camera = Camera.init(Vec3{ .x = 0.0, .y = 0.0, .z = 0.0 }, Vec3{ .x = 0.0, .y = 0.0, .z = -1.0 }, UnitVec3.normalize(Vec3{ .x = 0.0, .y = 1.0, .z = 0.0 }), 45.0, app_state.width, app_state.height, 1.0);
+    const camera = Camera.init(Vec3{ .x = 0.0, .y = 0.0, .z = 0.0 }, Vec3{ .x = 0.0, .y = 0.0, .z = -1.0 }, UnitVec3.normalize(Vec3{ .x = 0.0, .y = 1.0, .z = 0.0 }), 90.0, app_state.width, app_state.height, 1.0);
 
     print("w: {}\n", .{camera.w});
     print("u: {}\n", .{camera.u});
@@ -353,6 +373,13 @@ pub fn main() !void {
             '5' => {
                 var timer = try std.time.Timer.start();
                 try func.depth_tracing(scene, camera, &app_state);
+                const elapsed_ns = timer.read();
+                // tracy.frameMark();
+                std.debug.print("Render time: {d} ms\n", .{elapsed_ns / 1_000_000});
+            },
+            '6' => {
+                var timer = try std.time.Timer.start();
+                try func.multithreaded(scene, camera, &app_state);
                 const elapsed_ns = timer.read();
                 // tracy.frameMark();
                 std.debug.print("Render time: {d} ms\n", .{elapsed_ns / 1_000_000});

@@ -13,6 +13,8 @@ const UnitVec3 = vec.UnitVec3;
 const Vec3 = vec.Vec3;
 const tracy = @import("tracy");
 const Zone = tracy.Zone;
+const mt = @import("../optimizations/multithreading.zig");
+const Tile = mt.Tile;
 
 const consts = @import("../helpers/const.zig");
 
@@ -310,7 +312,7 @@ pub fn depth_tracing(
     try helpers.writeFileAtomic("output/images", filename, buffer.items);
 }
 
-fn ray_trace(scene: anytype, depth: u8, ray: Ray) screen.ColorRGBf {
+fn ray_trace(scene: anytype, depth: usize, ray: Ray) screen.ColorRGBf {
     const ray_zone = Zone.begin(.{
         .name = "ray_trace",
         .src = @src(),
@@ -394,5 +396,96 @@ fn ray_trace(scene: anytype, depth: u8, ray: Ray) screen.ColorRGBf {
         return screen.colorReflected(color, ray_color, h.material.reflectivity);
     } else {
         return screen.BLACK;
+    }
+}
+
+fn render_region(scene: anytype, camera: *const Camera, buffer: [][3]u8, depth: usize, tile: *const Tile, width: usize, height: usize) void {
+    const x0 = tile.*.x0;
+    const y0 = tile.*.y0;
+    const x1 = @min(tile.x1, width);
+    const y1 = @min(tile.y1, height);
+
+    for (y0..y1) |y| {
+        for (x0..x1) |x| {
+            const ray: Ray = camera.*.get_ray(x, y);
+            const color = ray_trace(scene, depth, ray);
+            buffer[y * width + x] = screen.colorToPixel(color);
+        }
+    }
+}
+
+pub fn multithreaded(
+    scene: anytype,
+    camera: Camera,
+    app_state: *const AppState,
+) !void {
+    const frame_zone = Zone.begin(.{
+        .name = "frame::depth_tracing",
+        .src = @src(),
+        .color = .tomato,
+    });
+    defer frame_zone.end();
+    const tile_height: usize = 32;
+    const tile_width: usize = 32;
+    const width = app_state.*.width;
+    const height = app_state.*.height;
+    std.debug.assert(height > 0 and width > 0);
+    const height_usize: usize = @intCast(height);
+    const width_usize: usize = @intCast(width);
+
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    // Wrap the arena allocator with Tracy
+    var tracy_allocator: tracy.Allocator = .{
+        .parent = arena.allocator(),
+    };
+
+    const allocator = tracy_allocator.allocator();
+    const pixels = try allocator.alloc([3]u8, width_usize * height_usize);
+    const tiles = try mt.allocTiles(allocator, width_usize, height_usize, tile_width, tile_height);
+    const depth: usize = 25;
+
+    const cpu_count = try std.Thread.getCpuCount();
+    const workers = @max(1, cpu_count - 2);
+
+    std.debug.print("workers: {d}", .{workers});
+
+    var ctxs = try allocator.alloc(mt.WorkerCtx, workers);
+    _ = &ctxs;
+    defer allocator.free(ctxs);
+
+    var threads = try allocator.alloc(std.Thread, workers);
+    defer allocator.free(threads);
+
+    for (ctxs, 0..) |*ctx, i| {
+        ctx.* = .{
+            .id = i,
+            .worker_count = workers,
+        };
+        threads[i] = try std.Thread.spawn(.{}, worker_function, .{ pixels, scene, &camera, tiles, ctx, depth, width_usize, height_usize });
+    }
+
+    for (threads) |thread| {
+        thread.join();
+    }
+
+    var buffer: std.ArrayList(u8) = .{};
+    defer buffer.deinit(allocator);
+    const filename = try std.fmt.allocPrint(
+        allocator,
+        "multithreading{d}-{d}.ppm",
+        .{ depth, workers },
+    );
+    try helpers.encode_ppm(allocator, &buffer, pixels, height_usize, width_usize);
+    try helpers.writeFileAtomic("output/images", filename, buffer.items);
+}
+
+fn worker_function(pixels: [][3]u8, scene: anytype, camera: *const Camera, tiles: []Tile, ctx: *const mt.WorkerCtx, depth: usize, width: usize, height: usize) !void {
+    var index = ctx.*.id;
+    const step = ctx.*.worker_count;
+
+    while (index < tiles.len) : (index += step) {
+        render_region(scene, camera, pixels, depth, &tiles[index], width, height);
     }
 }
