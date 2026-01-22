@@ -62,7 +62,7 @@ pub fn create_ppm(app_state: *const AppState) !void {
 }
 
 pub fn show_scene(
-    scene: anytype,
+    scene: *const intersect.Scene,
     camera: Camera,
     use_color: bool,
     app_state: *const AppState,
@@ -81,21 +81,9 @@ pub fn show_scene(
     for (0..height_usize) |y| {
         for (0..width_usize) |x| {
             const ray: Ray = camera.get_ray(x, y);
-            var closest_hit: ?Hit = null;
-            const t_min: f64 = consts.epsilon;
-            var t_max: f64 = std.math.floatMax(f64);
-
-            inline for (scene) |object| {
-                const hit: ?Hit = object.intersect(ray, t_min, t_max);
-                if (hit) |h| {
-                    if (closest_hit == null or h.t < t_max) {
-                        t_max = h.t;
-                        closest_hit = h;
-                    }
-                }
-            }
+            const hit: ?Hit = scene.intersect(ray, consts.epsilon, std.math.floatMax(f64));
             var color: screen.ColorRGBf = undefined;
-            if (closest_hit) |h| {
+            if (hit) |h| {
                 if (use_color) {
                     color = screen.ColorRGBf{
                         .r = h.material.color.r,
@@ -122,7 +110,7 @@ pub fn show_scene(
 }
 
 pub fn lambertian_shading(
-    scene: anytype,
+    scene: *const intersect.Scene,
     camera: Camera,
     app_state: *const AppState,
 ) !void {
@@ -143,21 +131,9 @@ pub fn lambertian_shading(
     for (0..height_usize) |y| {
         for (0..width_usize) |x| {
             const ray: Ray = camera.get_ray(x, y);
-            var closest_hit: ?Hit = null;
-            const t_min: f64 = consts.epsilon;
-            var t_max: f64 = std.math.floatMax(f64);
-
-            inline for (scene) |object| {
-                const hit: ?Hit = object.intersect(ray, t_min, t_max);
-                if (hit) |h| {
-                    if (closest_hit == null or h.t < t_max) {
-                        t_max = h.t;
-                        closest_hit = h;
-                    }
-                }
-            }
+            const hit: ?Hit = scene.intersect(ray, consts.epsilon, std.math.floatMax(f64));
             var color: screen.ColorRGBf = undefined;
-            if (closest_hit) |h| {
+            if (hit) |h| {
                 const light_factor: f64 = helpers.clamp01(h.normal.dot(direction_to_light));
                 color = screen.ColorRGBf{
                     .r = h.material.color.r * light_factor,
@@ -183,7 +159,7 @@ pub fn lambertian_shading(
 }
 
 pub fn shadows(
-    scene: anytype,
+    scene: *const intersect.Scene,
     camera: Camera,
     app_state: *const AppState,
 ) !void {
@@ -204,36 +180,15 @@ pub fn shadows(
     for (0..height_usize) |y| {
         for (0..width_usize) |x| {
             const ray: Ray = camera.get_ray(x, y);
-            var closest_hit: ?Hit = null;
-            const t_min: f64 = consts.epsilon;
-            var t_max: f64 = std.math.floatMax(f64);
-
-            inline for (scene) |object| {
-                const hit: ?Hit = object.intersect(ray, t_min, t_max);
-                if (hit) |h| {
-                    if (closest_hit == null or h.t < t_max) {
-                        t_max = h.t;
-                        closest_hit = h;
-                    }
-                }
-            }
+            const hit: ?Hit = scene.intersect(ray, consts.epsilon, std.math.floatMax(f64));
             var color: screen.ColorRGBf = undefined;
-            if (closest_hit) |h| {
+            if (hit) |h| {
                 const light_factor: f64 = helpers.clamp01(h.normal.dot(direction_to_light));
                 var shadow: f64 = undefined;
                 if (light_factor > 0) {
                     const shadow_ray: Ray = Ray.init(h.point, direction_to_light);
-                    var closest_shadow_hit: ?Hit = null;
-                    inline for (scene) |object| {
-                        const shadow_hit: ?Hit = object.intersect(shadow_ray, consts.epsilon, std.math.floatMax(f64));
-                        if (shadow_hit) |sh| {
-                            if (closest_shadow_hit == null or sh.t < t_max) {
-                                t_max = sh.t;
-                                closest_shadow_hit = sh;
-                            }
-                        }
-                    }
-                    if (closest_shadow_hit == null) shadow = 1.0 else shadow = 0.0;
+                    const shadow_hit: ?Hit = scene.intersect(shadow_ray, consts.epsilon, std.math.floatMax(f64));
+                    if (shadow_hit == null) shadow = 1.0 else shadow = 0.0;
                 } else shadow = 0.0;
                 color = screen.ColorRGBf{
                     .r = h.material.color.r * light_factor * shadow,
@@ -259,16 +214,10 @@ pub fn shadows(
 }
 
 pub fn depth_tracing(
-    scene: anytype,
+    scene: *const intersect.Scene,
     camera: Camera,
     app_state: *const AppState,
 ) !void {
-    const frame_zone = Zone.begin(.{
-        .name = "frame::depth_tracing",
-        .src = @src(),
-        .color = .tomato,
-    });
-    defer frame_zone.end();
     const width = app_state.*.width;
     const height = app_state.*.height;
     std.debug.assert(height > 0 and width > 0);
@@ -288,12 +237,6 @@ pub fn depth_tracing(
     const depth: u8 = 25;
 
     for (0..height_usize) |y| {
-        const row_zone = Zone.begin(.{
-            .name = "row_loop",
-            .src = @src(),
-            .color = .orange,
-        });
-        defer row_zone.end();
         for (0..width_usize) |x| {
             const ray: Ray = camera.get_ray(x, y);
             const color = ray_trace(scene, depth, ray);
@@ -312,44 +255,12 @@ pub fn depth_tracing(
     try helpers.writeFileAtomic("output/images", filename, buffer.items);
 }
 
-fn ray_trace(scene: anytype, depth: usize, ray: Ray) screen.ColorRGBf {
-    const ray_zone = Zone.begin(.{
-        .name = "ray_trace",
-        .src = @src(),
-        .color = .red,
-    });
-    defer ray_zone.end();
+fn ray_trace(scene: *const intersect.Scene, depth: usize, ray: Ray) screen.ColorRGBf {
     if (depth <= 0) return screen.BLACK;
 
-    var closest_hit: ?Hit = null;
-    const t_min: f64 = consts.epsilon;
-    var t_max: f64 = std.math.floatMax(f64);
+    const hit: ?Hit = scene.intersect(ray, consts.epsilon, std.math.floatMax(f64));
 
-    {
-        const intersect_zone = Zone.begin(.{
-            .name = "scene_intersection",
-            .src = @src(),
-            .color = .yellow,
-        });
-        defer intersect_zone.end();
-        inline for (scene) |object| {
-            const hit: ?Hit = object.intersect(ray, t_min, t_max);
-            if (hit) |h| {
-                if (closest_hit == null or h.t < t_max) {
-                    t_max = h.t;
-                    closest_hit = h;
-                }
-            }
-        }
-    }
-
-    if (closest_hit) |h| {
-        const shade_zone = Zone.begin(.{
-            .name = "shading",
-            .src = @src(),
-            .color = .green,
-        });
-        defer shade_zone.end();
+    if (hit) |h| {
         const reflected_vector: Vec3 = ray.direction.asVec3().sub(h.normal.asVec3().scale(Vec3.dot(ray.direction.asVec3(), h.normal.asVec3()) * 2.0));
         const reflected_dir: UnitVec3 = UnitVec3.normalize(reflected_vector);
         const reflected_ray = Ray.init(h.point, reflected_dir);
@@ -360,24 +271,9 @@ fn ray_trace(scene: anytype, depth: usize, ray: Ray) screen.ColorRGBf {
 
         var shadow: f64 = undefined;
         if (light_factor > 0) {
-            const shadow_zone = Zone.begin(.{
-                .name = "shadow_ray",
-                .src = @src(),
-                .color = .blue,
-            });
-            defer shadow_zone.end();
             const shadow_ray: Ray = Ray.init(h.point, direction_to_light);
-            var closest_shadow_hit: ?Hit = null;
-            inline for (scene) |object| {
-                const shadow_hit: ?Hit = object.intersect(shadow_ray, consts.epsilon, std.math.floatMax(f64));
-                if (shadow_hit) |sh| {
-                    if (closest_shadow_hit == null or sh.t < t_max) {
-                        t_max = sh.t;
-                        closest_shadow_hit = sh;
-                    }
-                }
-            }
-            if (closest_shadow_hit == null) shadow = 1.0 else shadow = 0.0;
+            const shadow_hit: ?Hit = scene.intersect(shadow_ray, consts.epsilon, std.math.floatMax(f64));
+            if (shadow_hit == null) shadow = 1.0 else shadow = 0.0;
         } else shadow = 0.0;
 
         const local_lighting: f64 = helpers.clamp01(light_factor) * shadow;
@@ -386,20 +282,15 @@ fn ray_trace(scene: anytype, depth: usize, ray: Ray) screen.ColorRGBf {
             .g = h.material.color.g * local_lighting,
             .b = h.material.color.b * local_lighting,
         };
-        const recurse_zone = Zone.begin(.{
-            .name = "reflection_recursion",
-            .src = @src(),
-            .color = .purple,
-        });
+
         const ray_color = ray_trace(scene, depth - 1, reflected_ray);
-        recurse_zone.end();
         return screen.colorReflected(color, ray_color, h.material.reflectivity);
     } else {
         return screen.BLACK;
     }
 }
 
-fn render_region(scene: anytype, camera: *const Camera, buffer: [][3]u8, depth: usize, tile: *const Tile, width: usize, height: usize) void {
+fn render_region(scene: *const intersect.Scene, camera: *const Camera, buffer: [][3]u8, depth: usize, tile: *const Tile, width: usize, height: usize) void {
     const x0 = tile.*.x0;
     const y0 = tile.*.y0;
     const x1 = @min(tile.x1, width);
@@ -415,7 +306,7 @@ fn render_region(scene: anytype, camera: *const Camera, buffer: [][3]u8, depth: 
 }
 
 pub fn multithreaded(
-    scene: anytype,
+    scene: *const intersect.Scene,
     camera: Camera,
     app_state: *const AppState,
 ) !void {
@@ -481,7 +372,7 @@ pub fn multithreaded(
     try helpers.writeFileAtomic("output/images", filename, buffer.items);
 }
 
-fn worker_function(pixels: [][3]u8, scene: anytype, camera: *const Camera, tiles: []Tile, ctx: *const mt.WorkerCtx, depth: usize, width: usize, height: usize) !void {
+fn worker_function(pixels: [][3]u8, scene: *const intersect.Scene, camera: *const Camera, tiles: []Tile, ctx: *const mt.WorkerCtx, depth: usize, width: usize, height: usize) !void {
     var index = ctx.*.id;
     const step = ctx.*.worker_count;
 

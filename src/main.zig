@@ -138,81 +138,6 @@ export fn WndProc(
     return win.DefWindowProcW(hwnd, msg, wParam, lParam);
 }
 
-const scene = .{
-    Plane{
-        .point = Vec3.init(0.0, 0.0, -10.0),
-        .normal = UnitVec3.init(0.0, 1.0, 1.0),
-        .material = Material{
-            .color = ColorRGBf{ .r = 0.0, .g = 1.0, .b = 0.0 },
-            .reflectivity = 0.1,
-        },
-    },
-    Plane{
-        .point = Vec3.init(0.0, 0.0, 10.0),
-        .normal = UnitVec3.init(0.0, 1.0, -1.0),
-        .material = Material{
-            .color = ColorRGBf{ .r = 0.0, .g = 1.0, .b = 1.0 },
-            .reflectivity = 0.1,
-        },
-    },
-    Plane{
-        .point = Vec3.init(0.0, -2.0, 0.0),
-        .normal = UnitVec3.init(0.0, 1.0, 0.0),
-        .material = Material{
-            .color = ColorRGBf{ .r = 0.0, .g = 0.0, .b = 0.0 },
-            .reflectivity = 0.06,
-        },
-    },
-    Plane{
-        .point = Vec3.init(10.0, 0.0, 0.0),
-        .normal = UnitVec3.init(-1.0, 1.0, 0.0),
-        .material = Material{
-            .color = ColorRGBf{ .r = 0.0, .g = 0.0, .b = 1.0 },
-            .reflectivity = 0.1,
-        },
-    },
-    Plane{
-        .point = Vec3.init(-10.0, 0.0, 0.0),
-        .normal = UnitVec3.init(1.0, 1.0, 0.0),
-        .material = Material{
-            .color = ColorRGBf{ .r = 1.0, .g = 0.0, .b = 0.0 },
-            .reflectivity = 0.1,
-        },
-    },
-    Sphere{
-        .center = Vec3.init(0.0, -2.0, -7.0),
-        .radius = 3.0,
-        .material = Material{
-            .color = ColorRGBf{ .r = 1.0, .g = 1.0, .b = 1.0 },
-            .reflectivity = 0.4,
-        },
-    },
-    Sphere{
-        .center = Vec3.init(0.0, 3.0, 8.0),
-        .radius = 7.0,
-        .material = Material{
-            .color = ColorRGBf{ .r = 0.0, .g = 1.0, .b = 0.0 },
-            .reflectivity = 0.8,
-        },
-    },
-    Sphere{
-        .center = Vec3.init(-4.0, 1.0, -9.0),
-        .radius = 3.0,
-        .material = Material{
-            .color = ColorRGBf{ .r = 1.0, .g = 0.0, .b = 0.0 },
-            .reflectivity = 0.15,
-        },
-    },
-    Sphere{
-        .center = Vec3.init(6.0, 3.0, -20.0),
-        .radius = 10.0,
-        .material = Material{
-            .color = ColorRGBf{ .r = 1.0, .g = 0.0, .b = 0.0 },
-            .reflectivity = 0.5,
-        },
-    },
-};
-
 fn renderFrame(app_state: *AppState) void {
     for (app_state.framebuffer, 0..) |*pixel, i| {
         const width = @as(usize, @intCast(app_state.width));
@@ -337,17 +262,8 @@ pub fn main() !void {
         \\Enter Your Choice:
     ;
 
+    const scene = intersect.scene;
     const camera = Camera.init(Vec3{ .x = 0.0, .y = 0.0, .z = 0.0 }, Vec3{ .x = 0.0, .y = 0.0, .z = -1.0 }, UnitVec3.normalize(Vec3{ .x = 0.0, .y = 1.0, .z = 0.0 }), 90.0, app_state.width, app_state.height, 1.0);
-
-    print("w: {}\n", .{camera.w});
-    print("u: {}\n", .{camera.u});
-    print("v: {}\n", .{camera.v});
-    print("viewport height: {}\n", .{camera.viewport_height});
-    print("viewport width: {}\n", .{camera.viewport_width});
-    print("image plane center: {}\n", .{camera.image_plane_center});
-    print("image plane upper left: {}\n", .{camera.image_plane_upper_left});
-    print("h step: {}\n", .{camera.h_step});
-    print("v step: {}\n", .{camera.v_step});
 
     while (running) {
         try stdout.writeAll(output);
@@ -362,24 +278,24 @@ pub fn main() !void {
                 try func.create_ppm(&app_state);
             },
             '2' => {
-                try func.show_scene(scene, camera, true, &app_state);
+                try func.show_scene(&scene, camera, true, &app_state);
             },
             '3' => {
-                try func.lambertian_shading(scene, camera, &app_state);
+                try func.lambertian_shading(&scene, camera, &app_state);
             },
             '4' => {
-                try func.shadows(scene, camera, &app_state);
+                try func.shadows(&scene, camera, &app_state);
             },
             '5' => {
                 var timer = try std.time.Timer.start();
-                try func.depth_tracing(scene, camera, &app_state);
+                try func.depth_tracing(&scene, camera, &app_state);
                 const elapsed_ns = timer.read();
                 // tracy.frameMark();
                 std.debug.print("Render time: {d} ms\n", .{elapsed_ns / 1_000_000});
             },
             '6' => {
                 var timer = try std.time.Timer.start();
-                try func.multithreaded(scene, camera, &app_state);
+                try func.multithreaded(&scene, camera, &app_state);
                 const elapsed_ns = timer.read();
                 // tracy.frameMark();
                 std.debug.print("Render time: {d} ms\n", .{elapsed_ns / 1_000_000});

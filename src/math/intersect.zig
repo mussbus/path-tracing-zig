@@ -1,18 +1,17 @@
 const std = @import("std");
-const consts = @import("../helpers/const.zig");
-
-const vec = @import("vec.zig");
-const Vec3 = vec.Vec3;
-const UnitVec3 = vec.UnitVec3;
-
-const ray_file = @import("ray.zig");
-const Ray = ray_file.Ray;
-
-const screen = @import("../screen/screen.zig");
-const Material = screen.Material;
 
 const tracy = @import("tracy");
 const Zone = tracy.Zone;
+
+const consts = @import("../helpers/const.zig");
+const screen = @import("../screen/screen.zig");
+const ColorRGBf = screen.ColorRGBf;
+const Material = screen.Material;
+const ray_file = @import("ray.zig");
+const Ray = ray_file.Ray;
+const vec = @import("vec.zig");
+const Vec3 = vec.Vec3;
+const UnitVec3 = vec.UnitVec3;
 
 pub const Hit = struct {
     t: f64,
@@ -22,26 +21,12 @@ pub const Hit = struct {
     material: Material,
 };
 
-pub fn intersect(entities: anytype, ray: Ray, t_min: f64, t_max: f64) ?Hit {
-    var closest = t_max;
-    var result: ?Hit = null;
-
-    inline for (entities) |entity| {
-        if (entity.intersect(ray, t_min, closest)) |hit| {
-            closest = hit.t;
-            result = hit;
-        }
-    }
-
-    return result;
-}
-
 pub const Plane = struct {
     point: Vec3,
     normal: UnitVec3,
     material: Material,
 
-    pub fn intersect(self: Plane, ray: Ray, t_min: f64, t_max: f64) ?Hit {
+    pub inline fn intersect(self: Plane, ray: Ray, t_min: f64, t_max: f64) ?Hit {
         const zone = Zone.begin(.{
             .name = "Plane::intersect",
             .src = @src(),
@@ -76,8 +61,8 @@ pub const Sphere = struct {
     radius: f64,
     material: Material,
 
-    pub fn intersect(self: Sphere, ray: Ray, t_min: f64, t_max: f64) ?Hit {
-    const zone = Zone.begin(.{
+    pub inline fn intersect(self: Sphere, ray: Ray, t_min: f64, t_max: f64) ?Hit {
+        const zone = Zone.begin(.{
             .name = "Sphere::intersect",
             .src = @src(),
             .color = .magenta,
@@ -119,4 +104,133 @@ pub const Sphere = struct {
             .material = self.material,
         };
     }
+};
+
+const Entity = union(enum) {
+    sphere: Sphere,
+    plane: Plane,
+
+    pub fn intersect(self: Entity, ray: Ray, t_min: f64, t_max: f64) ?Hit {
+        return switch (self) {
+            .sphere => |s| s.intersect(ray, t_min, t_max),
+            .plane => |p| p.intersect(ray, t_min, t_max),
+        };
+    }
+};
+
+pub const Scene = struct {
+    entities: []const Entity,
+
+    pub inline fn intersect(self: Scene, ray: Ray, t_min: f64, t_max: f64) ?Hit {
+        var closest_hit: ?Hit = null;
+        var t_max_local = t_max;
+
+        for (self.entities) |object| {
+            const hit: ?Hit = object.intersect(ray, t_min, t_max_local);
+            if (hit) |h| {
+                if (closest_hit == null or h.t < t_max_local) {
+                    t_max_local = h.t;
+                    closest_hit = h;
+                }
+            }
+        }
+        return closest_hit;
+    }
+};
+
+const scene_entities = [_]Entity{
+    .{
+        .plane = Plane{
+            .point = Vec3.init(0.0, 0.0, -10.0),
+            .normal = UnitVec3.init(0.0, 1.0, 1.0),
+            .material = Material{
+                .color = ColorRGBf{ .r = 0.0, .g = 1.0, .b = 0.0 },
+                .reflectivity = 0.1,
+            },
+        },
+    },
+    .{
+        .plane = Plane{
+            .point = Vec3.init(0.0, 0.0, 10.0),
+            .normal = UnitVec3.init(0.0, 1.0, -1.0),
+            .material = Material{
+                .color = ColorRGBf{ .r = 0.0, .g = 1.0, .b = 1.0 },
+                .reflectivity = 0.1,
+            },
+        },
+    },
+    .{
+        .plane = Plane{
+            .point = Vec3.init(0.0, -2.0, 0.0),
+            .normal = UnitVec3.init(0.0, 1.0, 0.0),
+            .material = Material{
+                .color = ColorRGBf{ .r = 0.0, .g = 0.0, .b = 0.0 },
+                .reflectivity = 0.06,
+            },
+        },
+    },
+    .{
+        .plane = Plane{
+            .point = Vec3.init(10.0, 0.0, 0.0),
+            .normal = UnitVec3.init(-1.0, 1.0, 0.0),
+            .material = Material{
+                .color = ColorRGBf{ .r = 0.0, .g = 0.0, .b = 1.0 },
+                .reflectivity = 0.1,
+            },
+        },
+    },
+    .{
+        .plane = Plane{
+            .point = Vec3.init(-10.0, 0.0, 0.0),
+            .normal = UnitVec3.init(1.0, 1.0, 0.0),
+            .material = Material{
+                .color = ColorRGBf{ .r = 1.0, .g = 0.0, .b = 0.0 },
+                .reflectivity = 0.1,
+            },
+        },
+    },
+    .{
+        .sphere = Sphere{
+            .center = Vec3.init(0.0, -2.0, -7.0),
+            .radius = 3.0,
+            .material = Material{
+                .color = ColorRGBf{ .r = 1.0, .g = 1.0, .b = 1.0 },
+                .reflectivity = 0.4,
+            },
+        },
+    },
+    .{
+        .sphere = Sphere{
+            .center = Vec3.init(0.0, 3.0, 8.0),
+            .radius = 7.0,
+            .material = Material{
+                .color = ColorRGBf{ .r = 0.0, .g = 1.0, .b = 0.0 },
+                .reflectivity = 0.8,
+            },
+        },
+    },
+    .{
+        .sphere = Sphere{
+            .center = Vec3.init(-4.0, 1.0, -9.0),
+            .radius = 3.0,
+            .material = Material{
+                .color = ColorRGBf{ .r = 1.0, .g = 0.0, .b = 0.0 },
+                .reflectivity = 0.15,
+            },
+        },
+    },
+    .{
+        .sphere = Sphere{
+            .center = Vec3.init(6.0, 3.0, -20.0),
+            .radius = 10.0,
+            .material = Material{
+                .color = ColorRGBf{ .r = 1.0, .g = 0.0, .b = 0.0 },
+                .reflectivity = 0.5,
+            },
+        },
+    },
+};
+
+pub const scene = Scene{
+    .entities = &scene_entities,
 };
