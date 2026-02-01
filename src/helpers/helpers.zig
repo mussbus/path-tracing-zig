@@ -1,6 +1,6 @@
 const std = @import("std");
 const assert = std.debug.assert;
-const c = @import("const.zig");
+const c = @import("constants.zig");
 const io = std.Options.debug_io;
 
 /// Clamps a finite f64 into the range [0, 255] and truncates toward zero.

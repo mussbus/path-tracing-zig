@@ -1,1 +1,0 @@
-pub const epsilon: f64 = 1e-6;

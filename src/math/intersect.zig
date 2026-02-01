@@ -3,7 +3,7 @@ const std = @import("std");
 const tracy = @import("tracy");
 const Zone = tracy.Zone;
 
-const consts = @import("../helpers/const.zig");
+const constants = @import("../helpers/constants.zig");
 const screen = @import("../screen/screen.zig");
 const ColorRGBf = screen.ColorRGBf;
 const Material = screen.Material;
@@ -38,7 +38,7 @@ pub const Plane = struct {
         const p = self.point;
         const n: UnitVec3 = self.normal;
         const dot: f64 = UnitVec3.dot(n, d);
-        if (@abs(dot) < consts.epsilon) return null;
+        if (@abs(dot) < constants.epsilon) return null;
         const t: f64 = Vec3.dot(n.asVec3(), p.sub(o)) / UnitVec3.dot(n, d);
         if (t_min < t and t < t_max) {
             const point: Vec3 = o.add(d.scale(t));
@@ -104,16 +104,184 @@ pub const Sphere = struct {
             .material = self.material,
         };
     }
+
+    pub fn bounds(self: *const Sphere) AABB {
+        const c = self.*.center;
+        const r = self.*.radius;
+        // const r = self.*.radius + constants.epsilon;
+        const min = Vec3.init(c.x - r, c.y - r, c.z - r);
+        const max = Vec3.init(c.x + r, c.y + r, c.z + r);
+        return AABB{
+            .min = min,
+            .max = max,
+        };
+    }
 };
+
+const min_max = struct {
+    min: f64,
+    max: f64,
+};
+
+pub const AABB = struct {
+    min: Vec3,
+    max: Vec3,
+
+    pub fn unionize(a: AABB, b: AABB) AABB {
+        return AABB{
+            .min = Vec3.init(@min(a.min.x, b.min.x), @min(a.min.y, b.min.y), @min(a.min.z, b.min.z)),
+            .max = Vec3.init(@max(a.max.x, b.max.x), @max(a.max.y, b.max.y), @max(a.max.z, b.max.z)),
+        };
+    }
+
+    pub fn hit(self: AABB, ray: Ray, t_min: f64, t_max: f64) ?f64 {
+        const x = slab_interval(ray.origin.x, ray.direction.x, self.min.x, self.max.x);
+        const y = slab_interval(ray.origin.y, ray.direction.y, self.min.y, self.max.y);
+        const z = slab_interval(ray.origin.z, ray.direction.z, self.min.z, self.max.z);
+        const t_enter = @max(x.min, y.min, z.min, t_min);
+        const t_exit = @min(x.max, y.max, z.max, t_max);
+
+        if (t_enter <= t_exit)
+            return t_enter;
+        return null;
+    }
+
+    inline fn slab_interval(origin: f64, direction: f64, min: f64, max: f64) min_max {
+        if (@abs(direction) < constants.epsilon) {
+            if (origin < min or origin > max) {
+                return min_max{ .min = std.math.floatMax(f64), .max = -std.math.floatMax(f64) };
+            } else {
+                return min_max{ .min = -std.math.floatMax(f64), .max = std.math.floatMax(f64) };
+            }
+        }
+        const t0 = (origin - min) / direction;
+        const t1 = (origin - max) / direction;
+        return min_max{ .min = @min(t0, t1), .max = @max(t0, t1) };
+    }
+
+    pub fn centroid(self: AABB) Vec3 {
+        return self.min.add(self.max).scale(0.5);
+    }
+};
+
+// TODO pass in centroids as a parameter? How to prevent recomputing every centroid?
+pub const BVH = struct {
+    root: *BVHNode,
+    indices: []u32,
+
+    pub fn build_bvh(scenery: *const Scene, allocator: std.mem.Allocator) !BVH {
+        const indices: []u32 = try allocator.alloc(u32, scenery.*.entities.len);
+        for (indices, 0..) |_, i| {
+            indices[i] = @intCast(i);
+        }
+        const root: *BVHNode = try build_bvh_node(scenery, indices, 0, @as(u32, @intCast(indices.len)), allocator);
+
+        return BVH{ .root = root, .indices = indices };
+    }
+
+    fn build_bvh_node(scenery: *const Scene, indices: []u32, start: u32, count: u32, allocator: std.mem.Allocator) !*BVHNode {
+        const end: u32 = start + count - 1;
+        var entity_index = indices[start];
+        var bounds: AABB = scenery.*.entities[entity_index].bounds();
+        var index = start + 1;
+        while (index <= end) : (index += 1) {
+            entity_index = indices[index];
+            bounds = AABB.unionize(bounds, scenery.*.entities[entity_index].bounds());
+        }
+
+        if (count <= constants.leaf_threshold) {
+            const leaf_node = try allocator.create(BVHNode);
+            leaf_node.* = BVHNode{ .bounds = bounds, .data = .{ .leaf = .{
+            .start = start, .count = count
+            }  }};
+            return leaf_node;
+        }
+
+        const x: f64 = bounds.max.x - bounds.min.x;
+        const y: f64 = bounds.max.y - bounds.min.y;
+        const z: f64 = bounds.max.z - bounds.min.z;
+
+        var max: f64 = x;
+        var axis: u32 = 0;
+
+        if (y > max) {
+            axis = 1;
+            max = y;
+        }
+        if (z > max) {
+            axis = 2;
+            max = z;
+        }
+
+        const centroid: Vec3 = bounds.centroid();
+        const midpoint: f64 = centroid.component(axis);
+        var i: u32 = start;
+        var j: u32 = end;
+
+        var left_entity: u32 = indices[i];
+        var right_entity: u32 = indices[j];
+
+        while (i <= j) {
+            if (scenery.*.entities[left_entity].bounds().centroid().component(axis) <= midpoint) {
+                i += 1;
+                left_entity = indices[i];
+            } else if (scenery.*.entities[right_entity].bounds().centroid().component(axis) > midpoint) {
+                j -= 1;
+                right_entity = indices[j];
+            } else {
+                indices[i] = right_entity;
+                indices[j] = left_entity;
+                i += 1;
+                j -= 1;
+                left_entity = indices[i];
+                right_entity = indices[j];
+            }
+        }
+
+        var left: u32 = i - start;
+        var right: u32 = count - left;
+
+        if (left == 0 or left == count) {
+            left = count / 2;
+            right = count - left;
+        }
+
+        const l_node = try build_bvh_node(scenery, indices, start, left, allocator);
+        const r_node = try build_bvh_node(scenery, indices, start + left, right, allocator);
+
+        const node = try allocator.create(BVHNode);
+        node.* = BVHNode{ .bounds = bounds, .data = .{ .internal = .{ .left = l_node, .right = r_node }} } ;
+        return node;
+    }
+};
+
+// TODO change struct size to be < 64 Bytes
+
+pub const BVHNode = struct { bounds: AABB, data: union(enum) { leaf: struct {
+    start: u32,
+    count: u32,
+}, internal: struct {
+    left: *BVHNode,
+    right: *BVHNode,
+} } };
 
 const Entity = union(enum) {
     sphere: Sphere,
     plane: Plane,
+    // triangle: Triangle,
 
     pub fn intersect(self: Entity, ray: Ray, t_min: f64, t_max: f64) ?Hit {
         return switch (self) {
             .sphere => |s| s.intersect(ray, t_min, t_max),
             .plane => |p| p.intersect(ray, t_min, t_max),
+            // .triangle => |t| t.intersect(ray, t_min, t_max),
+        };
+    }
+
+    pub fn bounds(self: Entity) AABB {
+        return switch (self) {
+            .sphere => |s| s.bounds(),
+            .plane => AABB{ .max = Vec3.init(1, 1, 1), .min = Vec3.init(0, 0, 0) },
         };
     }
 };
@@ -136,6 +304,10 @@ pub const Scene = struct {
         }
         return closest_hit;
     }
+
+    // pub fn generate_scene(allocator: std.mem.Allocator) Scene {
+
+    // }
 };
 
 const scene_entities = [_]Entity{

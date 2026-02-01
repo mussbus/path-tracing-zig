@@ -1,4 +1,4 @@
-const c = @import("../helpers/const.zig");
+const c = @import("../helpers/constants.zig");
 const std = @import("std");
 const assert = std.debug.assert;
 
@@ -6,6 +6,8 @@ pub const VecError = error{
     ZeroLength,
 };
 
+// TODO switch interface to [3]f64 instead of .x, .y, .z
+// removes branching in component function
 pub const Vec3 = struct {
     x: f64,
     y: f64,
@@ -17,6 +19,15 @@ pub const Vec3 = struct {
             .y = y,
             .z = z,
         };
+    }
+
+    pub fn component(self: Vec3, axis: u32) f64 {
+        switch (axis) {
+            0 => return self.x,
+            1 => return self.y,
+            2 => return self.z,
+            else => unreachable,
+        }
     }
 
     pub fn len(self: Vec3) f64 {

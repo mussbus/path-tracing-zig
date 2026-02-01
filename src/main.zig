@@ -178,6 +178,7 @@ fn parseCommand(line: []const u8) u8 {
     if (std.mem.eql(u8, line, "4")) return '4';
     if (std.mem.eql(u8, line, "5")) return '5';
     if (std.mem.eql(u8, line, "6")) return '6';
+    if (std.mem.eql(u8, line, "7")) return '7';
     return 'Z';
 }
 
@@ -259,6 +260,7 @@ pub fn main() !void {
         \\4. Shadow
         \\5. Ray Tracer
         \\6. Multithreaded
+        \\7. Build BVH
         \\Enter Your Choice:
     ;
 
@@ -296,6 +298,13 @@ pub fn main() !void {
             '6' => {
                 var timer = try std.time.Timer.start();
                 try func.multithreaded(&scene, camera, &app_state);
+                const elapsed_ns = timer.read();
+                // tracy.frameMark();
+                std.debug.print("Render time: {d} ms\n", .{elapsed_ns / 1_000_000});
+            },
+            '7' => {
+                var timer = try std.time.Timer.start();
+                try func.create_bvh(&scene);
                 const elapsed_ns = timer.read();
                 // tracy.frameMark();
                 std.debug.print("Render time: {d} ms\n", .{elapsed_ns / 1_000_000});

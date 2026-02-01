@@ -1,22 +1,23 @@
 const std = @import("std");
-const helpers = @import("helpers.zig");
-const screen = @import("../screen/screen.zig");
-const a_state = @import("../screen/app_state.zig");
+
+const tracy = @import("tracy");
+const Zone = tracy.Zone;
+
+const constants = @import("../helpers/constants.zig");
+const intersect = @import("../math/intersect.zig");
+const Hit = intersect.Hit;
 const rays = @import("../math/ray.zig");
 const Camera = rays.Camera;
 const Ray = rays.Ray;
-const intersect = @import("../math/intersect.zig");
-const Hit = intersect.Hit;
-const AppState = a_state.AppState;
 const vec = @import("../math/vec.zig");
 const UnitVec3 = vec.UnitVec3;
 const Vec3 = vec.Vec3;
-const tracy = @import("tracy");
-const Zone = tracy.Zone;
 const mt = @import("../optimizations/multithreading.zig");
 const Tile = mt.Tile;
-
-const consts = @import("../helpers/const.zig");
+const a_state = @import("../screen/app_state.zig");
+const AppState = a_state.AppState;
+const screen = @import("../screen/screen.zig");
+const helpers = @import("helpers.zig");
 
 pub fn create_ppm(app_state: *const AppState) !void {
     const width = app_state.*.width;
@@ -81,7 +82,7 @@ pub fn show_scene(
     for (0..height_usize) |y| {
         for (0..width_usize) |x| {
             const ray: Ray = camera.get_ray(x, y);
-            const hit: ?Hit = scene.intersect(ray, consts.epsilon, std.math.floatMax(f64));
+            const hit: ?Hit = scene.intersect(ray, constants.epsilon, std.math.floatMax(f64));
             var color: screen.ColorRGBf = undefined;
             if (hit) |h| {
                 if (use_color) {
@@ -131,7 +132,7 @@ pub fn lambertian_shading(
     for (0..height_usize) |y| {
         for (0..width_usize) |x| {
             const ray: Ray = camera.get_ray(x, y);
-            const hit: ?Hit = scene.intersect(ray, consts.epsilon, std.math.floatMax(f64));
+            const hit: ?Hit = scene.intersect(ray, constants.epsilon, std.math.floatMax(f64));
             var color: screen.ColorRGBf = undefined;
             if (hit) |h| {
                 const light_factor: f64 = helpers.clamp01(h.normal.dot(direction_to_light));
@@ -180,14 +181,14 @@ pub fn shadows(
     for (0..height_usize) |y| {
         for (0..width_usize) |x| {
             const ray: Ray = camera.get_ray(x, y);
-            const hit: ?Hit = scene.intersect(ray, consts.epsilon, std.math.floatMax(f64));
+            const hit: ?Hit = scene.intersect(ray, constants.epsilon, std.math.floatMax(f64));
             var color: screen.ColorRGBf = undefined;
             if (hit) |h| {
                 const light_factor: f64 = helpers.clamp01(h.normal.dot(direction_to_light));
                 var shadow: f64 = undefined;
                 if (light_factor > 0) {
                     const shadow_ray: Ray = Ray.init(h.point, direction_to_light);
-                    const shadow_hit: ?Hit = scene.intersect(shadow_ray, consts.epsilon, std.math.floatMax(f64));
+                    const shadow_hit: ?Hit = scene.intersect(shadow_ray, constants.epsilon, std.math.floatMax(f64));
                     if (shadow_hit == null) shadow = 1.0 else shadow = 0.0;
                 } else shadow = 0.0;
                 color = screen.ColorRGBf{
@@ -258,7 +259,7 @@ pub fn depth_tracing(
 fn ray_trace(scene: *const intersect.Scene, depth: usize, ray: Ray) screen.ColorRGBf {
     if (depth <= 0) return screen.BLACK;
 
-    const hit: ?Hit = scene.intersect(ray, consts.epsilon, std.math.floatMax(f64));
+    const hit: ?Hit = scene.intersect(ray, constants.epsilon, std.math.floatMax(f64));
 
     if (hit) |h| {
         const reflected_vector: Vec3 = ray.direction.asVec3().sub(h.normal.asVec3().scale(Vec3.dot(ray.direction.asVec3(), h.normal.asVec3()) * 2.0));
@@ -272,7 +273,7 @@ fn ray_trace(scene: *const intersect.Scene, depth: usize, ray: Ray) screen.Color
         var shadow: f64 = undefined;
         if (light_factor > 0) {
             const shadow_ray: Ray = Ray.init(h.point, direction_to_light);
-            const shadow_hit: ?Hit = scene.intersect(shadow_ray, consts.epsilon, std.math.floatMax(f64));
+            const shadow_hit: ?Hit = scene.intersect(shadow_ray, constants.epsilon, std.math.floatMax(f64));
             if (shadow_hit == null) shadow = 1.0 else shadow = 0.0;
         } else shadow = 0.0;
 
@@ -379,4 +380,19 @@ fn worker_function(pixels: [][3]u8, scene: *const intersect.Scene, camera: *cons
     while (index < tiles.len) : (index += step) {
         render_region(scene, camera, pixels, depth, &tiles[index], width, height);
     }
+}
+
+pub fn create_bvh(scene: *const intersect.Scene) !void {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    // Wrap the arena allocator with Tracy
+    var tracy_allocator: tracy.Allocator = .{
+        .parent = arena.allocator(),
+    };
+
+    const allocator = tracy_allocator.allocator();
+
+    const bvh = try intersect.BVH.build_bvh(scene, allocator);
+    std.debug.print("indices count = {}\n", .{bvh.root.data.internal.right.data.internal.right});
 }

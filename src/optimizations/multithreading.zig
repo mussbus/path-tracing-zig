@@ -10,7 +10,7 @@ pub const Tile = struct {
 /// caller must free memory
 ///
 /// 9.1 / 10 code review
-pub fn allocTiles(allocator: std.mem.Allocator, width: usize, height: usize, h_tile: usize, v_tile: usize) ![]Tile {
+pub inline fn allocTiles(allocator: std.mem.Allocator, width: usize, height: usize, h_tile: usize, v_tile: usize) ![]Tile {
     std.debug.assert(h_tile > 0 and v_tile > 0);
     const horizontal_tiles = (width + h_tile - 1) / h_tile;
     const vertical_tiles = (height + v_tile - 1) / v_tile;
